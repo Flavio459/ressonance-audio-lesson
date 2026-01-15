@@ -1,0 +1,154 @@
+{
+  "name": "Podcast Automation: Reddit → OpenAI → ElevenLabs → Podbean → Spotify",
+  "description": "Fluxo completo de automação de podcast: puxa conteúdo de Reddit, gera roteiro com OpenAI, cria áudio com ElevenLabs, publica em Podbean e sincroniza automaticamente com Spotify.",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerType": "interval",
+        "unit": "hours",
+        "interval": 6
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.cronTrigger",
+      "typeVersion": 1,
+      "position": [50, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/[SEU_SUBREDDIT]/top/.json?t=day&limit=5",
+        "options": {}
+      },
+      "name": "Fetch Reddit Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [250, 100]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jmesPath": "data.children[0]"
+      },
+      "name": "Extract Top Post",
+      "type": "n8n-nodes-base.jmespath",
+      "typeVersion": 1,
+      "position": [450, 100]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "options": {},
+        "messages": "=[
+  {
+    \"role\": \"system\",
+    \"content\": \"Você é um roteirista de podcast profissional em PT-BR. Crie um roteiro para episódio de podcast de 8-12 minutos sobre o seguinte tópico. Formato: 1. Introdução (1 min) 2. Corpo (6-8 min) com 3 pontos principais 3. Conclusão (1-2 min). Tom: Profissional, engajador, conversacional. NÃO use músicas ou efeitos sonoros.\"
+  },
+  {
+    \"role\": \"user\",
+    \"content\": \"Tópico: {{$node['Extract Top Post'].json.data.title}}. Resumo: {{$node['Extract Top Post'].json.data.selftext.substring(0, 300)}}\"
+  }
+]"
+      },
+      "name": "OpenAI Generate Script",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [650, 100]
+    },
+    {
+      "parameters": {
+        "model": "eleven_multilingual_v2",
+        "voice": "George",
+        "text": "={{$node['OpenAI Generate Script'].json.choices[0].message.content}}"
+      },
+      "name": "ElevenLabs TTS",
+      "type": "n8n-nodes-base.elevenLabs",
+      "typeVersion": 1,
+      "position": [850, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://api.podbean.com/v1/episodes",
+        "method": "POST",
+        "headers": "Authorization|Bearer {{$env.PODBEAN_TOKEN}}
+Content-Type|application/json",
+        "body": "{
+  \"title\": \"{{$node['Extract Top Post'].json.data.title}}\",
+  \"description\": \"Episódio automático: {{$node['Extract Top Post'].json.data.selftext.substring(0, 200)}}...\",
+  \"media_url\": \"{{$node['ElevenLabs TTS'].json.audio_url}}\",
+  \"publish_time\": {{Math.floor(Date.now() / 1000)}}
+}"
+      },
+      "name": "Podbean Upload Episode",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://hooks.slack.com/services/[SEU_WEBHOOK]",
+        "options": {},
+        "body": "{
+  \"text\": \"✅ Episódio publicado automaticamente!\\n📌 Título: {{$node['Extract Top Post'].json.data.title}}\\n📊 Episódio URL: {{$node['Podbean Upload Episode'].json.episode_url}}\\n⏰ Pronto para Spotify em ~5 min\"
+}"
+      },
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1250, 100]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Fetch Reddit Posts", "type": "main", "index": 0 }]]
+    },
+    "Fetch Reddit Posts": {
+      "main": [[{ "node": "Extract Top Post", "type": "main", "index": 0 }]]
+    },
+    "Extract Top Post": {
+      "main": [[{ "node": "OpenAI Generate Script", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Generate Script": {
+      "main": [[{ "node": "ElevenLabs TTS", "type": "main", "index": 0 }]]
+    },
+    "ElevenLabs TTS": {
+      "main": [[{ "node": "Podbean Upload Episode", "type": "main", "index": 0 }]]
+    },
+    "Podbean Upload Episode": {
+      "main": [[{ "node": "Slack Notification", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0",
+  "meta": {
+    "created": "2026-01-15",
+    "author": "Ressonance Audio Lesson",
+    "documentation": "https://github.com/Flavio459/ressonance-audio-lesson/blob/main/docs/01-spotify-automation/03-full-automation.md"
+  },
+  "requiredCredentials": [
+    {
+      "name": "OPENAI_API_KEY",
+      "description": "Sua chave da API OpenAI",
+      "url": "https://platform.openai.com/api-keys"
+    },
+    {
+      "name": "ELEVENLABS_API_KEY",
+      "description": "Sua chave da API ElevenLabs",
+      "url": "https://elevenlabs.io/api"
+    },
+    {
+      "name": "PODBEAN_TOKEN",
+      "description": "Token OAuth2 do Podbean",
+      "url": "https://podbean.com/settings/apps"
+    },
+    {
+      "name": "SLACK_WEBHOOK",
+      "description": "Webhook de Slack (opcional, para notificações)",
+      "url": "https://slack.com/apps/A0F7XDUAZ-incoming-webhooks"
+    }
+  ],
+  "setup_instructions": {
+    "pt": "1. Importe este JSON em n8n (Ctrl+Import)\n2. Substitua [SEU_SUBREDDIT] pelo seu subreddit real\n3. Adicione credenciais: OpenAI, ElevenLabs, Podbean, Slack\n4. Teste com 'Execute' (primeira execução)\n5. Ative o trigger 'Schedule Trigger'\n6. Workflow executará a cada 6 horas automaticamente"
+  }
+}
